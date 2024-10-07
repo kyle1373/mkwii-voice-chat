@@ -152,7 +152,7 @@ class VoiceChatGUI(QGraphicsView):
         # After updating the users, recalculate volumes
         self.update_volumes()
 
-    def calculate_proximity(self, hearing_range_factor=.00000000000001):
+    def calculate_proximity(self, hearing_range_factor=.000001):
         if self.user_id not in self.users:
             return {}
 
@@ -176,7 +176,12 @@ class VoiceChatGUI(QGraphicsView):
 
             # Calculate the volume, with a more rapid falloff based on scaled distance
             volume = max(0.0, 1.0 - (scaled_distance / scaled_max_distance))
-
+            if volume < .7:
+                volume /= 1.5
+            elif volume < .5:
+                volume /= 2
+            elif volume < .3:
+                volume = 0
             # Assign volume to the corresponding user_id
             volumes[user_id] = volume
 
