@@ -4,15 +4,30 @@ import sys
 import random
 import math
 from PyQt5.QtWidgets import (
-    QGraphicsView, QGraphicsScene, QGraphicsEllipseItem, QGraphicsTextItem,
-    QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QGraphicsItemGroup
+    QGraphicsView,
+    QGraphicsScene,
+    QGraphicsEllipseItem,
+    QGraphicsTextItem,
+    QPushButton,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGraphicsItemGroup,
+    QGraphicsItem,
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QGraphicsItem
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QBrush, QFont
 
+
+class SignalEmitter(QObject):
+    position_changed = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+
+
 class UserGraphicsItem(QGraphicsItemGroup):
-    def __init__(self, user_id, x, y, color, movable):
+    def __init__(self, user_id, x, y, color):
         super().__init__()
         self.user_id = user_id
         self.icon_item = QGraphicsEllipseItem(-10, -10, 20, 20)
@@ -20,23 +35,22 @@ class UserGraphicsItem(QGraphicsItemGroup):
         self.addToGroup(self.icon_item)
 
         self.label_item = QGraphicsTextItem(user_id)
-        self.label_item.setFont(QFont('Arial', 12))
-        self.label_item.setPos(-self.label_item.boundingRect().width()/2, -30)
+        self.label_item.setFont(QFont("Arial", 12))
+        self.label_item.setPos(-self.label_item.boundingRect().width() / 2, -30)
         self.addToGroup(self.label_item)
 
-        if movable:
-            self.setFlag(QGraphicsItem.ItemIsMovable, True)
-            self.setFlag(QGraphicsItem.ItemIsSelectable, True)
-        else:
-            self.setFlag(QGraphicsItem.ItemIsMovable, True)  # Allow moving blue dots
+        # Signal emitter to handle position_changed signal
+        self.signal_emitter = SignalEmitter()
+
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
 
         self.setPos(x, y)
 
-    def itemChange(self, change, value):
-        if change == QGraphicsItem.ItemPositionHasChanged:
-            # No need to do anything, the label moves with the group
-            pass
-        return super().itemChange(change, value)
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        self.signal_emitter.position_changed.emit()
+
 
 class VoiceChatGUI(QGraphicsView):
     mute_state_changed = pyqtSignal(bool)
@@ -52,8 +66,8 @@ class VoiceChatGUI(QGraphicsView):
         self.setScene(self.scene)
 
         # Rectangle area dimensions
-        self.area_width = 800
-        self.area_height = 600
+        self.area_width = 1000
+        self.area_height = 1000
         self.setFixedSize(self.area_width, self.area_height)
 
         # User items: user_id -> UserGraphicsItem
@@ -88,19 +102,15 @@ class VoiceChatGUI(QGraphicsView):
     def toggle_mute(self):
         self.is_muted = self.mute_button.isChecked()
         self.mute_button.setText("Unmute" if self.is_muted else "Mute")
-        if self.is_muted:
-            self.mute_button.setStyleSheet("background-color: red")
-        else:
-            self.mute_button.setStyleSheet("")
+        self.mute_button.setStyleSheet("background-color: red" if self.is_muted else "")
         self.mute_state_changed.emit(self.is_muted)
 
     def toggle_deafen(self):
         self.is_deafened = self.deafen_button.isChecked()
         self.deafen_button.setText("Undeafen" if self.is_deafened else "Deafen")
-        if self.is_deafened:
-            self.deafen_button.setStyleSheet("background-color: red")
-        else:
-            self.deafen_button.setStyleSheet("")
+        self.deafen_button.setStyleSheet(
+            "background-color: red" if self.is_deafened else ""
+        )
         self.deafen_state_changed.emit(self.is_deafened)
 
     def add_user(self, user_id):
@@ -112,9 +122,12 @@ class VoiceChatGUI(QGraphicsView):
         y = random.randint(50, self.area_height - 70)
 
         color = Qt.red if user_id == self.user_id else Qt.blue
-        movable = True  # Allow moving blue dots as well
 
-        user_item = UserGraphicsItem(user_id, x, y, color, movable)
+        user_item = UserGraphicsItem(user_id, x, y, color)
+
+        # Connect the signal from the signal_emitter to update_volumes
+        user_item.signal_emitter.position_changed.connect(self.update_volumes)
+
         self.scene.addItem(user_item)
         self.users[user_id] = user_item
 
@@ -136,7 +149,10 @@ class VoiceChatGUI(QGraphicsView):
         for user_id in existing_users - new_users:
             self.remove_user(user_id)
 
-    def calculate_proximity(self, hearing_range_factor=.0001):
+        # After updating the users, recalculate volumes
+        self.update_volumes()
+
+    def calculate_proximity(self, hearing_range_factor=.00000000000001):
         if self.user_id not in self.users:
             return {}
 
@@ -165,10 +181,10 @@ class VoiceChatGUI(QGraphicsView):
             volumes[user_id] = volume
 
         return volumes
-
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
+    def update_volumes(self):
+        # Recalculate volumes based on the current positions
         volumes = self.calculate_proximity()
-        # Update volumes in the client code if necessary
-        if hasattr(self, 'on_volume_change'):
+
+        # Trigger volume change if this callback exists
+        if hasattr(self, "on_volume_change"):
             self.on_volume_change(volumes)
