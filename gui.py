@@ -3,12 +3,46 @@
 import sys
 import random
 import math
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsEllipseItem
-from PyQt5.QtGui import QBrush
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QGraphicsView, QGraphicsScene, QGraphicsEllipseItem, QGraphicsTextItem,
+    QPushButton, QWidget, QVBoxLayout, QHBoxLayout, QGraphicsItemGroup
+)
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QGraphicsItem
+from PyQt5.QtGui import QBrush, QFont
+
+class UserGraphicsItem(QGraphicsItemGroup):
+    def __init__(self, user_id, x, y, color, movable):
+        super().__init__()
+        self.user_id = user_id
+        self.icon_item = QGraphicsEllipseItem(-10, -10, 20, 20)
+        self.icon_item.setBrush(QBrush(color))
+        self.addToGroup(self.icon_item)
+
+        self.label_item = QGraphicsTextItem(user_id)
+        self.label_item.setFont(QFont('Arial', 12))
+        self.label_item.setPos(-self.label_item.boundingRect().width()/2, -30)
+        self.addToGroup(self.label_item)
+
+        if movable:
+            self.setFlag(QGraphicsItem.ItemIsMovable, True)
+            self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        else:
+            self.setFlag(QGraphicsItem.ItemIsMovable, True)  # Allow moving blue dots
+
+        self.setPos(x, y)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            # No need to do anything, the label moves with the group
+            pass
+        return super().itemChange(change, value)
 
 class VoiceChatGUI(QGraphicsView):
-    def __init__(self, user_id, users_list):
+    mute_state_changed = pyqtSignal(bool)
+    deafen_state_changed = pyqtSignal(bool)
+
+    def __init__(self, user_id):
         super().__init__()
 
         self.user_id = user_id
@@ -22,31 +56,90 @@ class VoiceChatGUI(QGraphicsView):
         self.area_height = 600
         self.setFixedSize(self.area_width, self.area_height)
 
-        # Add users
-        self.users = {}  # Dictionary of user_id to QGraphicsEllipseItem
-        for uid in users_list:
-            is_self = (uid == self.user_id)
-            self.add_user(uid, is_self=is_self)
+        # User items: user_id -> UserGraphicsItem
+        self.users = {}
 
-    def add_user(self, user_id, is_self=False):
-        # Random position
-        x = random.randint(0, self.area_width - 20)
-        y = random.randint(0, self.area_height - 20)
+        # Mute and Deafen states
+        self.is_muted = False
+        self.is_deafened = False
 
-        # Create a circle to represent the user
-        user_item = QGraphicsEllipseItem(0, 0, 20, 20)
-        user_item.setBrush(QBrush(Qt.blue if not is_self else Qt.red))
-        if is_self:
-            user_item.setFlag(QGraphicsEllipseItem.ItemIsMovable, True)
-            user_item.setFlag(QGraphicsEllipseItem.ItemIsSelectable, True)
+        # UI Elements
+        self.init_ui()
+
+    def init_ui(self):
+        # Mute and Deafen buttons
+        self.mute_button = QPushButton("Mute")
+        self.mute_button.setCheckable(True)
+        self.mute_button.clicked.connect(self.toggle_mute)
+
+        self.deafen_button = QPushButton("Deafen")
+        self.deafen_button.setCheckable(True)
+        self.deafen_button.clicked.connect(self.toggle_deafen)
+
+        # Layout
+        self.button_widget = QWidget()
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.mute_button)
+        button_layout.addWidget(self.deafen_button)
+        self.button_widget.setLayout(button_layout)
+        self.button_widget.setGeometry(0, 0, 200, 50)
+        self.scene.addWidget(self.button_widget)
+
+    def toggle_mute(self):
+        self.is_muted = self.mute_button.isChecked()
+        self.mute_button.setText("Unmute" if self.is_muted else "Mute")
+        if self.is_muted:
+            self.mute_button.setStyleSheet("background-color: red")
         else:
-            user_item.setFlag(QGraphicsEllipseItem.ItemIsMovable, False)
-        user_item.setPos(x, y)
+            self.mute_button.setStyleSheet("")
+        self.mute_state_changed.emit(self.is_muted)
 
+    def toggle_deafen(self):
+        self.is_deafened = self.deafen_button.isChecked()
+        self.deafen_button.setText("Undeafen" if self.is_deafened else "Deafen")
+        if self.is_deafened:
+            self.deafen_button.setStyleSheet("background-color: red")
+        else:
+            self.deafen_button.setStyleSheet("")
+        self.deafen_state_changed.emit(self.is_deafened)
+
+    def add_user(self, user_id):
+        if user_id in self.users:
+            return
+
+        # Random position
+        x = random.randint(50, self.area_width - 70)
+        y = random.randint(50, self.area_height - 70)
+
+        color = Qt.red if user_id == self.user_id else Qt.blue
+        movable = True  # Allow moving blue dots as well
+
+        user_item = UserGraphicsItem(user_id, x, y, color, movable)
         self.scene.addItem(user_item)
         self.users[user_id] = user_item
 
+    def remove_user(self, user_id):
+        if user_id in self.users:
+            user_item = self.users[user_id]
+            self.scene.removeItem(user_item)
+            del self.users[user_id]
+
+    def update_user_list(self, user_list):
+        existing_users = set(self.users.keys())
+        new_users = set(user_list)
+
+        # Add new users
+        for user_id in new_users - existing_users:
+            self.add_user(user_id)
+
+        # Remove disconnected users
+        for user_id in existing_users - new_users:
+            self.remove_user(user_id)
+
     def calculate_proximity(self):
+        if self.user_id not in self.users:
+            return {}
+
         self_pos = self.users[self.user_id].pos()
         volumes = {}
         for user_id, user_item in self.users.items():
@@ -67,7 +160,3 @@ class VoiceChatGUI(QGraphicsView):
         # Update volumes in the client code if necessary
         if hasattr(self, 'on_volume_change'):
             self.on_volume_change(volumes)
-
-    def get_volume_for_user(self, user_id):
-        volumes = self.calculate_proximity()
-        return volumes.get(user_id, 0.0)
