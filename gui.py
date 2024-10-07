@@ -136,7 +136,7 @@ class VoiceChatGUI(QGraphicsView):
         for user_id in existing_users - new_users:
             self.remove_user(user_id)
 
-    def calculate_proximity(self):
+    def calculate_proximity(self, hearing_range_factor=.0001):
         if self.user_id not in self.users:
             return {}
 
@@ -145,13 +145,25 @@ class VoiceChatGUI(QGraphicsView):
         for user_id, user_item in self.users.items():
             if user_id == self.user_id:
                 continue
+
             other_pos = user_item.pos()
             dx = self_pos.x() - other_pos.x()
             dy = self_pos.y() - other_pos.y()
             distance = math.hypot(dx, dy)
             max_distance = math.hypot(self.area_width, self.area_height)
-            volume = max(0.0, 1.0 - (distance / max_distance))
+
+            # Scale the distance using the hearing_range_factor
+            scaled_distance = distance / hearing_range_factor
+
+            # Ensure that max_distance is also scaled accordingly
+            scaled_max_distance = max_distance / hearing_range_factor
+
+            # Calculate the volume, with a more rapid falloff based on scaled distance
+            volume = max(0.0, 1.0 - (scaled_distance / scaled_max_distance))
+
+            # Assign volume to the corresponding user_id
             volumes[user_id] = volume
+
         return volumes
 
     def mouseReleaseEvent(self, event):
